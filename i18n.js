@@ -12,9 +12,12 @@ const ja = {
     PROP_tabAnimLoop: 'ループ',
     PROP_tabAnimLoopInitiny: '無限ループ',
     PROP_tabAnimLoopNum: 'ループ回数',
+    PROP_tabAnimDuration: '再生時間 (秒)',             // ADDED
+    PROP_tabAnimDurationHelp: 'LINEスタンプは1,2,3,4秒のいずれかで作成する必要があります。', // ADDED
     PROP_tabQuality: '画質・出力',
     PROP_tabQualityHApng: 'APNGを出力',
     PROP_tabQualityHWebp: 'WebP（静止画）を出力',
+    PROP_tabQualityCompress: 'ファイル容量を圧縮する（軽量化）', // ADDED
     PROP_btnSave: 'アニメ画像を保存する',
     HELP_fps: '1秒間あたりの画像枚数。数値が大きいほど滑らかになりますが、ファイルサイズも大きくなります。',
     HELP_loop: 'アニメーションを繰り返す回数。LINEスタンプの場合は規定ルールがあります。',
@@ -64,9 +67,12 @@ const en = {
     PROP_tabAnimLoop: 'Loop',
     PROP_tabAnimLoopInitiny: 'Infinite Loop',
     PROP_tabAnimLoopNum: 'Loop Count',
+    PROP_tabAnimDuration: 'Duration (sec)',          // ADDED
+    PROP_tabAnimDurationHelp: 'LINE stickers must be exactly 1, 2, 3, or 4 seconds long.', // ADDED
     PROP_tabQuality: 'Quality & Output',
     PROP_tabQualityHApng: 'Export APNG',
     PROP_tabQualityHWebp: 'Export WebP (still)',
+    PROP_tabQualityCompress: 'Compress file size (Color reduction)', // ADDED
     PROP_btnSave: 'Save Animation Image',
     HELP_fps: 'Frames per second. Higher values make it smoother but increase file size.',
     HELP_loop: 'Number of times the animation repeats. LINE stickers have specific rules.',

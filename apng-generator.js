@@ -7,18 +7,18 @@ import UPNG from 'upng-js';
 /**
  * 複数のImageBitmapからAPNGバイナリを生成する
  * @param {ImageBitmap[]} frames - フレーム画像の配列
- * @param {number} fps - フレームレート
+ * @param {number} delayMs - 1フレームあたりの遅延時間(ミリ秒)
  * @param {number} loopCount - ループ回数 (0 = 無限)
+ * @param {number} cnum - 色数（0 = lossless, 256などで減色処理）
  * @returns {ArrayBuffer} APNGバイナリ
  */
-export function generateApng(frames, fps, loopCount) {
+export function generateApng(frames, delayMs, loopCount, cnum = 0) {
     if (frames.length === 0) {
         throw new Error('No frames provided');
     }
 
     const width = frames[0].width;
     const height = frames[0].height;
-    const delayMs = Math.round(1000 / fps);
 
     // 各フレームのRGBAデータを取得
     const canvas = new OffscreenCanvas(width, height);
@@ -41,7 +41,7 @@ export function generateApng(frames, fps, loopCount) {
         frameDataList,
         width,
         height,
-        0,       // cnum: 0 = lossless
+        cnum,    // 色数（0で可逆、数値指定で減色圧縮）
         delays,  // 各フレームの遅延
         { loop: loopCount }  // ループ回数
     );

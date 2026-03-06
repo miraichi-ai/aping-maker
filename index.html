@@ -45,11 +45,23 @@
       <section class="setting-section">
         <h2 class="setting-title" data-i18n="PROP_tabAnim">アニメーション</h2>
 
-        <div class="setting-row">
+        <div class="setting-row" id="fps-row">
           <label data-i18n="PROP_tabAnimFps">フレームレート (FPS)</label>
           <input type="number" id="fps-input" class="number-input" value="15" min="1" max="60" />
         </div>
-        <p class="setting-help" data-i18n="HELP_fps">1秒間あたりの画像枚数。数値が大きいほど滑らかになりますが、ファイルサイズも大きくなります。</p>
+        <p class="setting-help" id="fps-help" data-i18n="HELP_fps">1秒間あたりの画像枚数。数値が大きいほど滑らかになりますが、ファイルサイズも大きくなります。</p>
+
+        <div class="setting-row" id="duration-row" style="display:none;">
+          <label data-i18n="PROP_tabAnimDuration">再生時間 (秒)</label>
+          <select id="duration-select" class="select-control">
+            <option value="1">1秒</option>
+            <option value="2">2秒</option>
+            <option value="3">3秒</option>
+            <option value="4">4秒</option>
+          </select>
+        </div>
+        <p class="setting-help" id="duration-help" data-i18n="PROP_tabAnimDurationHelp" style="display:none;">
+          LINEスタンプは1,2,3,4秒のいずれかで作成する必要があります。</p>
 
         <div class="setting-row" id="loop-infinite-row">
           <label data-i18n="PROP_tabAnimLoop">ループ</label>
@@ -75,6 +87,11 @@
         <label class="checkbox-label">
           <input type="checkbox" id="export-apng" checked />
           <span data-i18n="PROP_tabQualityHApng">APNGを出力</span>
+        </label>
+
+        <label class="checkbox-label" id="compress-row">
+          <input type="checkbox" id="compress-check" checked />
+          <span data-i18n="PROP_tabQualityCompress">ファイル容量を圧縮する（軽量化）</span>
         </label>
 
         <label class="checkbox-label" id="webp-export-row" style="display:none;">

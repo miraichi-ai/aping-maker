@@ -9,10 +9,12 @@ import { generateApng, apngBufferToBlob, downloadBlob } from './apng-generator.j
 const state = {
     mode: 'line',          // 'line' | 'web'
     fps: 15,
+    duration: 1,           // ADDED: LINEスタンプの再生時間(秒) 1-4
     noLoop: false,
     loopCount: 1,
     exportApng: true,
     exportWebp: false,
+    compressUrl: true,     // ADDED: 容量圧縮オプション(cnum=256)
     lineRule: 'animation_stamp',
     frames: [],            // ImageBitmap[]
     files: [],             // File[]
@@ -26,11 +28,18 @@ const state = {
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
 const modeSelect = $('#mode-select');
+const fpsRow = $('#fps-row');
+const fpsHelp = $('#fps-help');
 const fpsInput = $('#fps-input');
+const durationRow = $('#duration-row');
+const durationHelp = $('#duration-help');
+const durationSelect = $('#duration-select');
+
 const noLoopCheck = $('#no-loop-check');
 const loopInput = $('#loop-input');
 const exportApngCheck = $('#export-apng');
 const exportWebpCheck = $('#export-webp');
+const compressCheck = $('#compress-check');
 const lineRuleSelect = $('#line-rule-select');
 const saveBtn = $('#save-btn');
 const dropZone = $('#drop-zone');
@@ -81,6 +90,17 @@ function bindEvents() {
         fpsInput.value = state.fps;
     });
 
+    // Duration
+    durationSelect.addEventListener('change', (e) => {
+        state.duration = parseInt(e.target.value) || 1;
+        updateValidation();
+        // LINEモードの場合、FPS(再生遅延)が変動するのでアニメーションが再生中なら再描画
+        if (state.isPlaying && state.mode === 'line') {
+            stopAnimation();
+            startAnimation();
+        }
+    });
+
     // Loop
     noLoopCheck.addEventListener('change', (e) => {
         state.noLoop = e.target.checked;
@@ -88,19 +108,23 @@ function bindEvents() {
     });
 
     loopInput.addEventListener('input', (e) => {
-        state.loopCount = clamp(parseInt(e.target.value) || 1, 1, 100);
+        const maxLoop = state.mode === 'line' ? 4 : 100;
+        state.loopCount = clamp(parseInt(e.target.value) || 1, 1, maxLoop);
         updateValidation();
     });
     loopInput.addEventListener('blur', () => {
         loopInput.value = state.loopCount;
     });
 
-    // Export options
+    // Export & Quality options
     exportApngCheck.addEventListener('change', (e) => {
         state.exportApng = e.target.checked;
     });
     exportWebpCheck.addEventListener('change', (e) => {
         state.exportWebp = e.target.checked;
+    });
+    compressCheck.addEventListener('change', (e) => {
+        state.compressUrl = e.target.checked;
     });
 
     // LINE rule
@@ -218,12 +242,16 @@ function startAnimation() {
     playPauseBtn.textContent = '⏸️';
 
     let lastTime = 0;
-    const frameDelay = 1000 / state.fps;
-
     function animate(timestamp) {
         if (!state.isPlaying) return;
 
-        if (timestamp - lastTime >= frameDelay) {
+        // 計算上の遅延。LINEモードなら再生時間÷枚数。Webモードなら1000÷fps。
+        let internalDelay = 1000 / state.fps;
+        if (state.mode === 'line' && state.frames.length > 0) {
+            internalDelay = (state.duration * 1000) / state.frames.length;
+        }
+
+        if (timestamp - lastTime >= internalDelay) {
             lastTime = timestamp;
             const nextFrame = (state.currentFrame + 1) % state.frames.length;
             drawFrame(nextFrame);
@@ -282,7 +310,13 @@ async function handleSave() {
         // APNG
         if (state.exportApng) {
             const loopCount = state.noLoop ? 0 : state.loopCount;
-            const buffer = generateApng(state.frames, state.fps, loopCount);
+            // LINEモードは再生秒数指定、WebモードはFPS指定からの遅延換算
+            const delayMs = state.mode === 'line'
+                ? Math.round((state.duration * 1000) / state.frames.length)
+                : Math.round(1000 / state.fps);
+            const cnum = state.compressUrl ? 256 : 0; // 色数指定
+
+            const buffer = generateApng(state.frames, delayMs, loopCount, cnum);
             const blob = apngBufferToBlob(buffer);
             downloadBlob(blob, 'animation.png');
 
@@ -319,12 +353,16 @@ function runValidation(fileSize = null) {
         return;
     }
 
+    const currentFps = state.mode === 'line'
+        ? state.frames.length / state.duration
+        : state.fps;
+
     const results = validateLine(state.lineRule, {
         width: state.imageWidth,
         height: state.imageHeight,
         frameCount: state.frames.length,
         loopCount: state.noLoop ? 1 : state.loopCount,
-        fps: state.fps,
+        fps: currentFps,
         fileSize: fileSize,
     });
 
@@ -351,6 +389,12 @@ function updateUI() {
     loopInfiniteRow.style.display = isLine ? 'none' : '';
     webpExportRow.style.display = isLine ? 'none' : '';
 
+    // FPS vs Duration row visualization
+    fpsRow.style.display = isLine ? 'none' : '';
+    fpsHelp.style.display = isLine ? 'none' : '';
+    durationRow.style.display = isLine ? '' : 'none';
+    durationHelp.style.display = isLine ? '' : 'none';
+
     // Loop count row
     loopCountRow.style.display = state.noLoop ? 'none' : '';
 
@@ -362,6 +406,11 @@ function updateUI() {
         exportApngCheck.checked = true;
         state.exportWebp = false;
         exportWebpCheck.checked = false;
+        // Compression recommended for LINE
+        state.compressUrl = true;
+        compressCheck.checked = true;
+
+        loopInput.max = 4;
     } else {
         fpsInput.min = 1;
         fpsInput.max = 60;
@@ -412,7 +461,13 @@ function updateImageInfo() {
         imageInfoDiv.style.display = 'none';
         return;
     }
-    const duration = ((state.frames.length / state.fps) * (state.noLoop ? 1 : state.loopCount));
+    const currentDelayMs = state.mode === 'line'
+        ? Math.round((state.duration * 1000) / state.frames.length)
+        : Math.round(1000 / state.fps);
+
+    const singleCycleSec = (state.frames.length * currentDelayMs) / 1000;
+    const duration = singleCycleSec * (state.noLoop ? 1 : state.loopCount);
+
     infoSize.textContent = t('INFO_size', { w: state.imageWidth, h: state.imageHeight });
     infoFrames.textContent = t('INFO_frames', { n: state.frames.length });
     infoDuration.textContent = t('INFO_duration', { t: Math.round(duration * 100) / 100 });
