@@ -7,40 +7,56 @@ import UPNG from 'upng-js';
 /**
  * 複数のImageBitmapからAPNGバイナリを生成する
  * @param {ImageBitmap[]} frames - フレーム画像の配列
- * @param {number} delayMs - 1フレームあたりの遅延時間(ミリ秒)
+ * @param {number|number[]} delayMsOrArray - 全フレーム共通の遅延時間(ms)、または各フレームごとの遅延時間配列(ms)
  * @param {number} loopCount - ループ回数 (0 = 無限)
  * @param {number} cnum - 色数（0 = lossless, 256などで減色処理）
+ * @param {object|null} targetSize - リサイズ設定 {width, height, canvasWidth, canvasHeight}
  * @returns {ArrayBuffer} APNGバイナリ
  */
-export function generateApng(frames, delayMs, loopCount, cnum = 0) {
+export function generateApng(frames, delayMsOrArray, loopCount, cnum = 0, targetSize = null) {
     if (frames.length === 0) {
         throw new Error('No frames provided');
     }
 
-    const width = frames[0].width;
-    const height = frames[0].height;
+    const origWidth = frames[0].width;
+    const origHeight = frames[0].height;
+
+    // Canvas出力サイズの決定
+    const canvasW = targetSize ? targetSize.canvasWidth : origWidth;
+    const canvasH = targetSize ? targetSize.canvasHeight : origHeight;
+    const drawW = targetSize ? targetSize.width : origWidth;
+    const drawH = targetSize ? targetSize.height : origHeight;
+
+    // 中央寄せでの描画オフセット計算
+    const offsetX = Math.floor((canvasW - drawW) / 2);
+    const offsetY = Math.floor((canvasH - drawH) / 2);
 
     // 各フレームのRGBAデータを取得
-    const canvas = new OffscreenCanvas(width, height);
+    const canvas = new OffscreenCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
 
     const frameDataList = [];
     const delays = [];
 
-    for (const frame of frames) {
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(frame, 0, 0);
-        const imageData = ctx.getImageData(0, 0, width, height);
+    const isDelayArray = Array.isArray(delayMsOrArray);
+
+    for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i];
+        ctx.clearRect(0, 0, canvasW, canvasH);
+        ctx.drawImage(frame, offsetX, offsetY, drawW, drawH);
+        const imageData = ctx.getImageData(0, 0, canvasW, canvasH);
         frameDataList.push(imageData.data.buffer);
-        delays.push(delayMs);
+
+        // 遅延配列が渡された場合はそれぞれの要素を、数値の場合は単一数値を設定
+        delays.push(isDelayArray ? delayMsOrArray[i] : delayMsOrArray);
     }
 
     // UPNG.encodeでAPNG生成
     // 第4引数: 0 = ロスレス, >0 = 色数（パレット）
     const apngBuffer = UPNG.encode(
         frameDataList,
-        width,
-        height,
+        canvasW,
+        canvasH,
         cnum,    // 色数（0で可逆、数値指定で減色圧縮）
         delays,  // 各フレームの遅延
         { loop: loopCount }  // ループ回数

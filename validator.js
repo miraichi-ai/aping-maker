@@ -160,3 +160,47 @@ export function getLineConstraints(ruleType) {
         loopMax: def.loopCount.max,
     };
 }
+
+/**
+ * LINEのルールに合わせて画像を縮小・リサイズする場合の目標サイズを計算する
+ * @param {string} ruleType 
+ * @param {number} origW 元画像の幅
+ * @param {number} origH 元画像の高さ
+ * @returns {object} { width, height, canvasWidth, canvasHeight }
+ */
+export function calculateTargetSize(ruleType, origW, origH) {
+    const def = validators[ruleType];
+    if (!def) return { width: origW, height: origH, canvasWidth: origW, canvasHeight: origH };
+
+    const img = def.imageSize;
+    let targetW = origW;
+    let targetH = origH;
+
+    switch (img.type) {
+        case 'exact':
+            // 例: メイン画像(240x240)
+            const scaleExact = Math.min(img.w / origW, img.h / origH);
+            targetW = Math.round(origW * scaleExact);
+            targetH = Math.round(origH * scaleExact);
+            // 余白を含めてCanvas自体は指定サイズに固定する
+            return { width: targetW, height: targetH, canvasWidth: img.w, canvasHeight: img.h };
+
+        case 'maxBothMinOneside':
+            // 例: アニメスタンプ(W320xH270以下)
+            // デフォルトは縮小のみ。小さい場合はそのまま。
+            const scaleMax = Math.min(1.0, img.maxW / origW, img.maxH / origH);
+            targetW = Math.round(origW * scaleMax);
+            targetH = Math.round(origH * scaleMax);
+            return { width: targetW, height: targetH, canvasWidth: targetW, canvasHeight: targetH };
+
+        case 'exactWidthMinHeight':
+            // 例: ポップアップ(W480固定)
+            const scaleW = img.w / origW;
+            targetW = img.w;
+            targetH = Math.round(origH * scaleW);
+            return { width: targetW, height: targetH, canvasWidth: targetW, canvasHeight: targetH };
+
+        default:
+            return { width: origW, height: origH, canvasWidth: origW, canvasHeight: origH };
+    }
+}

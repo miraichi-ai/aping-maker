@@ -2,7 +2,7 @@
  * アニメ画像に変換する君 Web - メインアプリケーション
  */
 import { getLang, setLang, t, applyI18n } from './i18n.js';
-import { validateLine, getLineConstraints } from './validator.js';
+import { validateLine, getLineConstraints, calculateTargetSize } from './validator.js';
 import { generateApng, apngBufferToBlob, downloadBlob } from './apng-generator.js';
 
 // ===== State =====
@@ -242,16 +242,16 @@ function startAnimation() {
     playPauseBtn.textContent = '⏸️';
 
     let lastTime = 0;
+    const delays = getDelays();
+
     function animate(timestamp) {
         if (!state.isPlaying) return;
 
-        // 計算上の遅延。LINEモードなら再生時間÷枚数。Webモードなら1000÷fps。
-        let internalDelay = 1000 / state.fps;
-        if (state.mode === 'line' && state.frames.length > 0) {
-            internalDelay = (state.duration * 1000) / state.frames.length;
-        }
+        const currentDelay = delays.length > 0
+            ? delays[state.currentFrame % delays.length]
+            : (1000 / state.fps);
 
-        if (timestamp - lastTime >= internalDelay) {
+        if (timestamp - lastTime >= currentDelay) {
             lastTime = timestamp;
             const nextFrame = (state.currentFrame + 1) % state.frames.length;
             drawFrame(nextFrame);
@@ -310,13 +310,16 @@ async function handleSave() {
         // APNG
         if (state.exportApng) {
             const loopCount = state.noLoop ? 0 : state.loopCount;
-            // LINEモードは再生秒数指定、WebモードはFPS指定からの遅延換算
-            const delayMs = state.mode === 'line'
-                ? Math.round((state.duration * 1000) / state.frames.length)
-                : Math.round(1000 / state.fps);
+            // 計算されたピッタリの遅延時間配列を取得
+            const delays = getDelays();
             const cnum = state.compressUrl ? 256 : 0; // 色数指定
 
-            const buffer = generateApng(state.frames, delayMs, loopCount, cnum);
+            // リサイズ設定（LINEモードで圧縮ONの場合のみ適用）
+            const targetSize = state.mode === 'line' && state.compressUrl
+                ? calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight)
+                : null;
+
+            const buffer = generateApng(state.frames, delays, loopCount, cnum, targetSize);
             const blob = apngBufferToBlob(buffer);
             downloadBlob(blob, 'animation.png');
 
@@ -357,9 +360,16 @@ function runValidation(fileSize = null) {
         ? state.frames.length / state.duration
         : state.fps;
 
+    const targetSize = state.mode === 'line' && state.compressUrl
+        ? calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight)
+        : null;
+
+    const currentW = targetSize ? targetSize.canvasWidth : state.imageWidth;
+    const currentH = targetSize ? targetSize.canvasHeight : state.imageHeight;
+
     const results = validateLine(state.lineRule, {
-        width: state.imageWidth,
-        height: state.imageHeight,
+        width: currentW,
+        height: currentH,
         frameCount: state.frames.length,
         loopCount: state.noLoop ? 1 : state.loopCount,
         fps: currentFps,
@@ -461,17 +471,43 @@ function updateImageInfo() {
         imageInfoDiv.style.display = 'none';
         return;
     }
-    const currentDelayMs = state.mode === 'line'
-        ? Math.round((state.duration * 1000) / state.frames.length)
-        : Math.round(1000 / state.fps);
 
-    const singleCycleSec = (state.frames.length * currentDelayMs) / 1000;
-    const duration = singleCycleSec * (state.noLoop ? 1 : state.loopCount);
+    // 表示用の寸法（リサイズされる場合はリサイズ後の寸法を表示）
+    const targetSize = state.mode === 'line' && state.compressUrl
+        ? calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight)
+        : null;
+    const currentW = targetSize ? targetSize.canvasWidth : state.imageWidth;
+    const currentH = targetSize ? targetSize.canvasHeight : state.imageHeight;
 
-    infoSize.textContent = t('INFO_size', { w: state.imageWidth, h: state.imageHeight });
+    const delays = getDelays();
+    const singleCycleMs = delays.reduce((acc, val) => acc + val, 0);
+    const duration = (singleCycleMs / 1000) * (state.noLoop ? 1 : state.loopCount);
+
+    infoSize.textContent = t('INFO_size', { w: currentW, h: currentH });
     infoFrames.textContent = t('INFO_frames', { n: state.frames.length });
-    infoDuration.textContent = t('INFO_duration', { t: Math.round(duration * 100) / 100 });
+    infoDuration.textContent = t('INFO_duration', { t: Math.round(duration * 1000) / 1000 });
     imageInfoDiv.style.display = '';
+}
+
+// ===== Utility =====
+function getDelays() {
+    if (state.frames.length === 0) return [];
+    const count = state.frames.length;
+
+    if (state.mode === 'line') {
+        const totalMs = state.duration * 1000;
+        const baseDelay = Math.floor(totalMs / count);
+        const remainder = totalMs % count;
+        const delays = [];
+        for (let i = 0; i < count; i++) {
+            // 余りの数だけ、最初のフレームに+1msして総時間をピッタリ合わせる
+            delays.push(baseDelay + (i < remainder ? 1 : 0));
+        }
+        return delays;
+    } else {
+        const delayMs = Math.round(1000 / state.fps);
+        return Array(count).fill(delayMs);
+    }
 }
 
 // ===== Toast =====
