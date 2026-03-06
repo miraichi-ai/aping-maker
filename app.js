@@ -5,6 +5,15 @@ import { getLang, setLang, t, applyI18n } from './i18n.js';
 import { validateLine, getLineConstraints, calculateTargetSize } from './validator.js';
 import { generateApng, apngBufferToBlob, downloadBlob } from './apng-generator.js';
 
+// バリデーション設定
+const VALIDATORS = {
+    animation_stamp: { maxFileSize: 300 * 1024 },
+    animation_main: { maxFileSize: 300 * 1024 },
+    effect: { maxFileSize: 500 * 1024 },
+    popup: { maxFileSize: 500 * 1024 },
+    emoji: { maxFileSize: 300 * 1024 },
+};
+
 // ===== State =====
 const state = {
     mode: 'line',          // 'line' | 'web'
@@ -23,6 +32,7 @@ const state = {
     isPlaying: false,
     currentFrame: 0,
     animationId: null,
+    isProcessing: false,   // ADDED: 保存処理中フラグ
 };
 
 // ===== DOM Elements =====
@@ -177,6 +187,14 @@ function bindEvents() {
     });
 }
 
+// ===== Utility for UI =====
+function setLoadingText(textHtml) {
+    const p = loadingOverlay.querySelector('p');
+    if (p) {
+        p.innerHTML = textHtml;
+    }
+}
+
 // ===== File Loading =====
 async function loadFiles(files) {
     // Sort files by name
@@ -297,40 +315,71 @@ function clearFrames() {
 
 // ===== Save / Generate =====
 async function handleSave() {
-    if (state.frames.length === 0) return;
+    if (state.frames.length === 0 || state.isProcessing) return;
 
     if (!state.exportApng && !state.exportWebp) {
         showToast(t('TOAST_noFormat'), 'warning');
         return;
     }
 
+    // 保存前の基本バリデーションチェック (LINEモードのみ)
+    // ファイルサイズ以外の条件（フレーム数、秒数など）を満たしているか確認
+    if (state.mode === 'line') {
+        const preCheckResults = validateCurrentState();
+        const hasError = preCheckResults.some(r => !r.pass && r.label !== t('VALIDATE_fileSize'));
+        if (hasError) {
+            showToast(t('TOAST_validationFailed'), 'error');
+            return;
+        }
+    }
+
+    state.isProcessing = true;
     loadingOverlay.style.display = 'flex';
+    saveBtn.disabled = true;
 
     try {
         // APNG
         if (state.exportApng) {
-            const loopCount = state.noLoop ? 0 : state.loopCount;
-            // 計算されたピッタリの遅延時間配列を取得
-            const delays = getDelays();
-            const cnum = state.compressUrl ? 256 : 0; // 色数指定
+            if (state.mode === 'line' && state.compressUrl) {
+                // LINEモード ＆ 圧縮ON の場合は自動最適化フローへ
+                await autoCompressAndDownloadApng();
+            } else {
+                // 通常フロー
+                setLoadingText(t('LOADING'));
 
-            // リサイズ設定（LINEモードで圧縮ONの場合のみ適用）
-            const targetSize = state.mode === 'line' && state.compressUrl
-                ? calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight)
-                : null;
+                // 次の描画フレームで実行してUIをブロックしないようにする
+                await new Promise(resolve => setTimeout(resolve, 10));
 
-            const buffer = generateApng(state.frames, delays, loopCount, cnum, targetSize);
-            const blob = apngBufferToBlob(buffer);
-            downloadBlob(blob, 'animation.png');
+                const loopCount = state.noLoop ? 0 : state.loopCount;
+                const delays = getDelays();
+                const targetSize = state.mode === 'line' && state.compressUrl
+                    ? calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight)
+                    : null;
+                const cnum = state.mode === 'line' && state.compressUrl ? 256 : 0;
 
-            // LINE バリデーション（ファイルサイズ含む）
-            if (state.mode === 'line') {
-                runValidation(blob.size);
+                const buffer = generateApng(state.frames, delays, loopCount, cnum, targetSize);
+                const blob = apngBufferToBlob(buffer);
+
+                let canDownload = true;
+                if (state.mode === 'line') {
+                    const validationResults = runValidation(blob.size);
+                    const allPass = validationResults.every(r => r.pass);
+                    if (!allPass) {
+                        canDownload = false;
+                        showToast(t('TOAST_validationFailed'), 'error');
+                    }
+                }
+
+                if (canDownload) {
+                    downloadBlob(blob, 'animation.png');
+                    showToast(t('TOAST_saved'), 'success');
+                }
             }
         }
 
         // WebP (still frames)
         if (state.exportWebp) {
+            setLoadingText(t('LOADING'));
             for (let i = 0; i < state.frames.length; i++) {
                 const canvas = new OffscreenCanvas(state.imageWidth, state.imageHeight);
                 const ctx = canvas.getContext('2d');
@@ -338,22 +387,89 @@ async function handleSave() {
                 const webpBlob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.9 });
                 downloadBlob(webpBlob, `frame_${String(i).padStart(4, '0')}.webp`);
             }
+            if (!state.exportApng) {
+                showToast(t('TOAST_saved'), 'success');
+            }
         }
 
-        showToast(t('TOAST_saved'), 'success');
     } catch (err) {
         console.error(err);
         showToast(`${t('TOAST_error')}: ${err.message}`, 'error');
     } finally {
+        state.isProcessing = false;
         loadingOverlay.style.display = 'none';
+        setLoadingText(t('LOADING')); // Reset text
+        saveBtn.disabled = false;
+    }
+}
+
+/**
+ * LINEスタンプ向けの容量自動最適化付き生成フロー
+ */
+async function autoCompressAndDownloadApng() {
+    const loopCount = state.noLoop ? 0 : state.loopCount;
+    const delays = getDelays();
+    const targetSize = calculateTargetSize(state.lineRule, state.imageWidth, state.imageHeight);
+
+    const maxSize = VALIDATORS[state.lineRule]?.maxFileSize || 300 * 1024;
+    const maxKB = Math.round(maxSize / 1024);
+
+    // 試行する色数の順序
+    const cnumSteps = [256, 128, 64, 32, 16];
+    let bestBlob = null;
+    let bestCnum = 0;
+    let isSuccess = false;
+
+    for (let i = 0; i < cnumSteps.length; i++) {
+        const cnum = cnumSteps[i];
+
+        // ローディングテキスト更新
+        const stepText = i === 0
+            ? t('LOADING')
+            : `${t('TOAST_optimizing')}<br><small>(Colors: ${cnum})</small>`;
+        setLoadingText(stepText);
+
+        // UI更新を待つ
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        const buffer = generateApng(state.frames, delays, loopCount, cnum, targetSize);
+        const blob = apngBufferToBlob(buffer);
+        const size = blob.size;
+
+        console.log(`[AutoCompress] cnum: ${cnum}, size: ${Math.round(size / 1024)}KB / ${maxKB}KB`);
+
+        // 保存用として記録
+        bestBlob = blob;
+        bestCnum = cnum;
+
+        // 容量クリア判定
+        if (size <= maxSize) {
+            isSuccess = true;
+            break; // 成功したらループを抜ける
+        }
+    }
+
+    // 最終バリデーション実行
+    const validationResults = runValidation(bestBlob.size);
+    const allPass = validationResults.every(r => r.pass);
+
+    if (isSuccess && allPass) {
+        // 全てクリアした場合のみダウンロード
+        downloadBlob(bestBlob, 'animation.png');
+        showToast(t('TOAST_saved'), 'success');
+    } else if (!isSuccess) {
+        // 色数を限界まで下げても容量オーバーだった場合
+        showToast(t('ERROR_sizeTooLarge', { max: maxKB }), 'error');
+    } else {
+        // 容量はクリアしたが、他の条件でNGになった場合(念のため)
+        showToast(t('TOAST_validationFailed'), 'error');
     }
 }
 
 // ===== Validation =====
-function runValidation(fileSize = null) {
+function validateCurrentState(fileSize = null) {
     if (state.mode !== 'line' || state.frames.length === 0) {
-        validationArea.style.display = 'none';
-        return;
+        return [];
     }
 
     const currentFps = state.mode === 'line'
@@ -367,7 +483,7 @@ function runValidation(fileSize = null) {
     const currentW = targetSize ? targetSize.canvasWidth : state.imageWidth;
     const currentH = targetSize ? targetSize.canvasHeight : state.imageHeight;
 
-    const results = validateLine(state.lineRule, {
+    return validateLine(state.lineRule, {
         width: currentW,
         height: currentH,
         frameCount: state.frames.length,
@@ -375,6 +491,15 @@ function runValidation(fileSize = null) {
         fps: currentFps,
         fileSize: fileSize,
     });
+}
+
+function runValidation(fileSize = null) {
+    if (state.mode !== 'line' || state.frames.length === 0) {
+        validationArea.style.display = 'none';
+        return [];
+    }
+
+    const results = validateCurrentState(fileSize);
 
     validationList.innerHTML = '';
     for (const r of results) {
@@ -384,6 +509,8 @@ function runValidation(fileSize = null) {
         validationList.appendChild(li);
     }
     validationArea.style.display = '';
+
+    return results;
 }
 
 function updateValidation() {
@@ -517,9 +644,13 @@ function showToast(message, type = 'success') {
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.textContent = message;
+    // 改行を許可するためinnerHTMLを使用
+    toast.innerHTML = message;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
+
+    // エラーは少し長く表示する
+    const displayTime = type === 'error' ? 6000 : 4000;
+    setTimeout(() => toast.remove(), displayTime);
 }
 
 // ===== Utility =====
