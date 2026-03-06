@@ -1,0 +1,17 @@
+{
+  "name": "animake-web",
+  "version": "1.0.0",
+  "description": "PNG連番画像からAPNG/WebPアニメーションを生成するウェブアプリ",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "upng-js": "^2.1.0"
+  },
+  "devDependencies": {
+    "vite": "^6.2.1"
+  }
+}

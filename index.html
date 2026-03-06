@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Animake Web</title>
+  <meta name="description" content="PNG連番画像からAPNGアニメーションを生成するウェブアプリ。LINEアニメーションスタンプにも対応。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-inner">
+      <h1 class="header-title">
+        <span class="header-icon">🎞️</span>
+        <span data-i18n="APP_NAME">Animake</span> <span class="header-badge">Web</span>
+      </h1>
+      <button id="lang-toggle" class="lang-toggle" title="Switch language">
+        <span id="lang-label">EN</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="main-layout">
+    <!-- 左: 設定パネル -->
+    <aside class="settings-panel">
+      <!-- 用途選択 -->
+      <section class="setting-section">
+        <h2 class="setting-title" data-i18n="PROP_use">用途</h2>
+        <select id="mode-select" class="select-control">
+          <option value="line" data-i18n="PROP_useItemLine">LINEスタンプ向け</option>
+          <option value="web" data-i18n="PROP_useItemWeb">Web向け</option>
+        </select>
+      </section>
+
+      <hr class="divider" />
+
+      <!-- アニメーション設定 -->
+      <section class="setting-section">
+        <h2 class="setting-title" data-i18n="PROP_tabAnim">アニメーション</h2>
+
+        <div class="setting-row">
+          <label data-i18n="PROP_tabAnimFps">フレームレート (FPS)</label>
+          <input type="number" id="fps-input" class="number-input" value="15" min="1" max="60" />
+        </div>
+        <p class="setting-help" data-i18n="HELP_fps">1秒間あたりの画像枚数。数値が大きいほど滑らかになりますが、ファイルサイズも大きくなります。</p>
+
+        <div class="setting-row" id="loop-infinite-row">
+          <label data-i18n="PROP_tabAnimLoop">ループ</label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="no-loop-check" />
+            <span data-i18n="PROP_tabAnimLoopInitiny">無限ループ</span>
+          </label>
+        </div>
+
+        <div class="setting-row" id="loop-count-row">
+          <label data-i18n="PROP_tabAnimLoopNum">ループ回数</label>
+          <input type="number" id="loop-input" class="number-input" value="1" min="1" max="100" />
+        </div>
+        <p class="setting-help" id="loop-help-text" data-i18n="HELP_loop">アニメーションを繰り返す回数。LINEスタンプの場合は規定ルールがあります。</p>
+      </section>
+
+      <hr class="divider" />
+
+      <!-- 画質設定 -->
+      <section class="setting-section">
+        <h2 class="setting-title" data-i18n="PROP_tabQuality">画質・出力</h2>
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="export-apng" checked />
+          <span data-i18n="PROP_tabQualityHApng">APNGを出力</span>
+        </label>
+
+        <label class="checkbox-label" id="webp-export-row" style="display:none;">
+          <input type="checkbox" id="export-webp" />
+          <span data-i18n="PROP_tabQualityHWebp">WebP（静止画）を出力</span>
+        </label>
+      </section>
+
+      <hr class="divider" />
+
+      <!-- LINE バリデーション -->
+      <section class="setting-section" id="line-validation-section">
+        <h2 class="setting-title" data-i18n="RULE_title">LINEチェックルール</h2>
+        <select id="line-rule-select" class="select-control">
+          <option value="animation_stamp" data-i18n="RULE_animation_stamp">アニメーションスタンプ</option>
+          <option value="animation_main" data-i18n="RULE_animation_main">メイン画像</option>
+          <option value="popup" data-i18n="RULE_popup">ポップアップスタンプ</option>
+          <option value="effect" data-i18n="RULE_effect">エフェクトスタンプ</option>
+          <option value="emoji" data-i18n="RULE_emoji">アニメーション絵文字</option>
+        </select>
+      </section>
+
+      <!-- 保存ボタン -->
+      <div class="save-area">
+        <button id="save-btn" class="save-button" disabled data-i18n="PROP_btnSave">
+          アニメ画像を保存する
+        </button>
+      </div>
+    </aside>
+
+    <!-- 右: プレビュー -->
+    <section class="preview-panel">
+      <!-- ドロップゾーン -->
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-content" id="drop-zone-content">
+          <div class="drop-icon">📂</div>
+          <p class="drop-text" data-i18n="DROP_text">PNG連番画像をここにドラッグ＆ドロップ</p>
+          <p class="drop-subtext" data-i18n="DROP_subtext">またはクリックしてファイルを選択</p>
+          <input type="file" id="file-input" accept=".png" multiple hidden />
+
+          <div class="usage-guide">
+            <h4 data-i18n="GUIDE_title">使い方ガイド</h4>
+            <ol>
+              <li data-i18n="GUIDE_step1">1. 用途を選ぶ（LINE用かWeb用か）</li>
+              <li data-i18n="GUIDE_step2">2. 連番PNG画像をドロップする</li>
+              <li data-i18n="GUIDE_step3">3. プレビューを確認して保存する</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- プレビューキャンバス -->
+        <div id="preview-container" class="preview-container" style="display:none;">
+          <canvas id="preview-canvas"></canvas>
+          <div class="preview-controls">
+            <button id="play-pause-btn" class="control-btn" title="Play/Pause">▶️</button>
+            <span id="frame-indicator" class="frame-indicator">0 / 0</span>
+            <button id="clear-btn" class="control-btn" title="Clear">🗑️</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- バリデーション結果 -->
+      <div id="validation-area" class="validation-area" style="display:none;">
+        <h3 class="validation-title" data-i18n="VALIDATE_title">バリデーション結果</h3>
+        <ul id="validation-list" class="validation-list"></ul>
+      </div>
+
+      <!-- 画像情報 -->
+      <div id="image-info" class="image-info" style="display:none;">
+        <span id="info-size"></span>
+        <span id="info-frames"></span>
+        <span id="info-duration"></span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ローディングオーバーレイ -->
+  <div id="loading-overlay" class="loading-overlay" style="display:none;">
+    <div class="loading-spinner"></div>
+    <p data-i18n="LOADING">生成中...</p>
+  </div>
+
+  <footer class="footer">
+    <span><span data-i18n="APP_NAME">Animake</span> Web v1.0</span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+
+</html>
